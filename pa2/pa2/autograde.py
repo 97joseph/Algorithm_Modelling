@@ -2,11 +2,10 @@
 """
 import os, os.path, sys
 import logging, threading, subprocess, itertools, collections
-import signal
 from contextlib import contextmanager
 
-__author__  = 'CS Dept'
-__version__ = '3.2.0'
+__author__  = 'David Menendez'
+__version__ = '3.0.1'
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +37,13 @@ def run_command(cmd):
     """
     logger.debug('Running %s', cmd)
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='latin-1')
-    (out,err) = p.communicate()
+    (out,err)= p.communicate()
 
     if out:
         logger.debug('Response\n%s', out)
 
     if p.returncode != 0:
         raise CommandError(cmd, p.returncode, out)
-
-    return out
 
 # --
 
@@ -171,20 +168,8 @@ class Test:
 
         logger.debug('Complete. Code %s\n%s', p.returncode, out)
 
-        if self.summary:
-            pass
-        elif p.returncode == self.ref_code:
+        if p.returncode == self.ref_code:
             self.analyze_output(out)
-        elif p.returncode < 0:
-            sig = -p.returncode
-
-            try:
-                sig = signal.Signals(sig).name
-            except ValueError:
-                pass
-
-            self.summary = 'terminated by signal ' + sig
-            self.check_for_sanitizer_output(p.pid, out)
         else:
             self.summary = 'unexpected return code: ' + str(p.returncode)
             self.check_for_sanitizer_output(p.pid, out)
@@ -258,7 +243,7 @@ class Test:
         # continue searching for SUMMARY
         for line in lines:
             if line.startswith('SUMMARY:'):
-                self.comments.append(line)
+                self.comments = [line]
                 return
 
 class RefTest(Test):
@@ -269,21 +254,12 @@ class RefTest(Test):
         self.ref = ref
 
     def analyze_output(self, full_out):
-        out = full_out.split('\n')
-        lines = len(out)
-        if len(full_out) > 0:
-            if full_out[-1] == '\n':
-                lines -= 1
-            else:
-                self.comments += ['output does not end with newline']
-        if out[0] != self.ref:
+        out = full_out.split('\n', 1)[0].rstrip()
+        if out != self.ref:
             self.summary = 'incorrect output'
             self.comments += [
-                'expected: ' + repr(self.ref),
-                'received: ' + repr(out[0])]
-        if lines > 1:
-            self.summary = 'incorrect output'
-            self.comments += ['{:,} extra lines in output'.format(lines - 1)]
+                'expected: ' + self.ref,
+                'received: ' + out]
 
 class FileRefTest(Test):
     """Compare program output with a reference file.
@@ -298,7 +274,7 @@ class FileRefTest(Test):
             self.comments.append('reference file: ' + repr(self.ref_file))
 
             reflines = open(self.ref_file).read().rstrip().split('\n')
-            outlines = out.rstrip().split('\n')  # FIXME: rstrip?
+            outlines = out.rstrip().split('\n')
 
             logger.debug('out %d lines; ref %d lines', len(outlines), len(reflines))
 
@@ -395,7 +371,7 @@ class AbstractTestGroup:
 
     def __init__(self, id='', weight=1, name=None, category=NORMAL, make_cmd=None):
         self.id = id
-        self.name = id if name is None else name
+        self.name = name or id
         self.weight = weight
         self.category = category
 
@@ -781,12 +757,12 @@ def test_project(project, src_dir, build_dir, data_dir, fail_stop=False, request
         print('-----')
         print(f'  {"":{group_width}} Points Failed Score')
         for group,score in catscores.items():
-            failed       = failures[category][group] or '-'
+            failed       = failures[category][group] or ''
             group_points = points[category][group]
             cat_points += group_points
             cat_score  += score
 
-            print(f'  {group:{group_width}} {group_points:6.1f} {failed:>6} {score:5.1f}')
+            print(f'  {group:{group_width}} {group_points:6.1f} {failed:6} {score:5.1f}')
 
         if len(catscores) > 1:
             print(f'  {"":{group_width}} ------        -----')
@@ -833,14 +809,12 @@ def get_args(src_subdir):
     argp.add_argument('-b', '--build', metavar='dir', default=None,
         help='Directory to place object files')
     argp.add_argument('-a', '--archive', metavar='tar',
-        help='Archive containing program files (overrides -s and -b)')
+        help='Archive containing program files (overrides -s and -o)')
 #     argp.add_argument('-x', '--extra', action='store_true',
 #         help='Include extra credit tests')
 #     argp.add_argument('-m', '--multiply', nargs=2, metavar=('project','factor'),
 #         action='append', default=[],
 #         help='Multiply a particular project score by some factor.')
-    argp.add_argument('-L', '--lsan', nargs='?', metavar='on|off', const='on',
-        help='Enable or disable the leak sanitizer')
     argp.add_argument('-d', '--debug', action='store_true',
         help='Increase logging')
     argp.add_argument('program', nargs='*',
@@ -912,15 +886,6 @@ def main(name, assignment, release=1,
         'requests': set(args.program),
         'init_only': args.init,
     }
-
-    if args.lsan:
-        # FIXME: should extend pre-existing ASAN_OPTIONS
-        if args.lsan == 'on' or args.lsan == '1':
-            os.environ['ASAN_OPTIONS'] = 'detect_leaks=1'
-        elif args.lsan == 'off' or args.lsan == '0':
-            os.environ['ASAN_OPTIONS'] = 'detect_leaks=0'
-
-        logger.info('ASAN_OPTIONS=%r', os.environ['ASAN_OPTIONS'])
 
     try:
         reporter.clear_bar()

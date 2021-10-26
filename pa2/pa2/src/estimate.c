@@ -9,7 +9,7 @@ void print(double **matrix,int rows, int columns){
         printf("\n"); 
     }
 
-}
+
 
 void transpose(double **arguments,double **argumentsTransposed, int numAttributes, int numHouses){
 	for(int i = 0; i < numAttributes; i++){
